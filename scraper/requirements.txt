@@ -1,0 +1,4 @@
+undetected-chromedriver==3.5.5
+selenium==4.10.0
+supabase==2.7.4
+python-dotenv==1.0.1
