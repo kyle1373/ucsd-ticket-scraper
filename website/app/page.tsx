@@ -133,10 +133,9 @@ export default async function HomePage({
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-4">UCSD Tickets</h1>
       <h1 className="text-base font-bold text-neutral-700 mb-4">
-        IMPORTANT NOTE: This website no longer updates in real time because UCSD
-        patched the exploit. Below is a 7 day archive. This was a fun
-        experiment, so I might make a blogpost about this sometime in the
-        future.
+        IMPORTANT NOTE: This website no longer updates in real time and is just
+        a 7 day archive. Whoever posted this site to the Reddit indirectly got
+        UCSD to shut it down.
       </h1>
       <h1 className="text-base font-bold text-neutral-700 mb-4">
         If you want to contact me, my Discord is{" "}
