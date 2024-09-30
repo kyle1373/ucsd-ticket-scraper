@@ -13,22 +13,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DO_LOGGING = True
-
-LATEST_CITATIONS_FILE = 'latest_citations.json'
+LATEST_CITATIONS_FILE = "latest_citations.json"
 
 print("Pulling from", LATEST_CITATIONS_FILE)
+
 
 def log_to_loki(level: str, message: str, extra_info: dict = None):
     stream = {
         "service": "ucsd-ticket-scraper",
         "job": "scrape-new-citations",
-        "level": level
+        "level": level,
     }
     messages = [message]
     if extra_info:
         messages.append(json.dumps(extra_info))
     push_logs_to_loki(stream, messages)
+
 
 # Function to check for an error message
 def check_for_error_message(driver):
@@ -98,14 +98,24 @@ def extract_citation_details(driver, citation_id):
             # Append the dictionary to the citations_data list
             citations_data.append(citation_data)
 
-        log_to_loki("info", f"Citation details extracted for citation ID {citation_id}", {"citations_data": citations_data})
+        log_to_loki(
+            "info",
+            f"Citation details extracted for citation ID {citation_id}",
+            {"citations_data": citations_data},
+        )
         return citations_data  # Return the list of dictionaries
 
     except TimeoutException:
-        log_to_loki("error", f"Timeout occurred while extracting citation details for citation ID {citation_id}")
+        log_to_loki(
+            "error",
+            f"Timeout occurred while extracting citation details for citation ID {citation_id}",
+        )
         return None
     except NoSuchElementException:
-        log_to_loki("error", f"No such element found while extracting citation details for citation ID {citation_id}")
+        log_to_loki(
+            "error",
+            f"No such element found while extracting citation details for citation ID {citation_id}",
+        )
         return None
 
 
@@ -162,7 +172,10 @@ def get_citation_status_with_driver(citation_id, driver):
         return "No result found."
 
     except TimeoutException:
-        log_to_loki("error", f"Timeout occurred while fetching citation data for citation ID {citation_id}")
+        log_to_loki(
+            "error",
+            f"Timeout occurred while fetching citation data for citation ID {citation_id}",
+        )
         return "Timeout occurred while fetching citation data"
 
 
@@ -176,9 +189,10 @@ def handle_citation_with_driver(citation_id, driver):
     # Log the result and time taken
     end_time = time.time()
     time_taken = end_time - start_time
-    if DO_LOGGING:
-        log_to_loki("info", f"Citation ID: {citation_id} | Time Taken: {time_taken:.2f} seconds | Result: {citation_status}")
-
+    log_to_loki(
+        "info",
+        f"Citation ID: {citation_id} | Time Taken: {time_taken:.2f} seconds | Result: {citation_status}",
+    )
 
     # Handle different outcomes from the citation status
     if isinstance(citation_status, list):
@@ -192,17 +206,20 @@ def handle_citation_with_driver(citation_id, driver):
                     license_plate=citation.get("license_plate", None),
                     balance=citation.get("balance", None),
                     location=citation.get("location", None),
-                    just_scraped=citation.get("just_scraped", False)  # Pass the just_scraped flag
-
+                    just_scraped=citation.get(
+                        "just_scraped", False
+                    ),  # Pass the just_scraped flag
                 )
-                if DO_LOGGING:
-                    log_to_loki("info", f"Citation ID {citation.get('citation_number')} data inserted/updated in tickets successfully.")
+                log_to_loki(
+                    "info",
+                    f"Citation ID {citation.get('citation_number')} data inserted/updated in tickets successfully.",
+                )
 
             except Exception as e:
-                if DO_LOGGING:
-                    log_to_loki("error", 
-                        f"Error inserting/updating tickets for citation ID {citation.get('citation_number')}: {e}"
-                    )
+                log_to_loki(
+                    "error",
+                    f"Error inserting/updating tickets for citation ID {citation.get('citation_number')}: {e}",
+                )
                 return False  # Failed insertion
         return True  # Success: all citations were inserted
 
@@ -216,58 +233,63 @@ def handle_citation_with_driver(citation_id, driver):
                 response = insert_error_ticket(
                     citation_id, citation_status, should_try_again=True
                 )
-                if DO_LOGGING:
-                    log_to_loki("warning",
-                        f"Error: Citation ID {citation_id} either appealed or something else."
-                    )
+                log_to_loki(
+                    "warning",
+                    f"Error: Citation ID {citation_id} either appealed or something else.",
+                )
                 return True  # Citation exists but errored. Try again later and move on
 
             elif (
                 "The citation you entered does not match any citations in the system"
                 in citation_status
             ):
-                if DO_LOGGING:
-                    log_to_loki("info", f"Citation ID {citation_id} does not exist.")
-                    
-                return False  # Citation does not exist. Do not insert and do not move on
+                log_to_loki("info", f"Citation ID {citation_id} does not exist.")
 
-            elif (
-                "The citation you entered has already been paid"
-                in citation_status
-            ):
+                return (
+                    False  # Citation does not exist. Do not insert and do not move on
+                )
+
+            elif "The citation you entered has already been paid" in citation_status:
                 response = insert_error_ticket(
                     citation_id, citation_status, should_try_again=False
                 )
-                
-                if DO_LOGGING:
-                    log_to_loki("warning", f"Citation ID {citation_id} has already been paid.")
-                
-                return True  # Citation has already been paid. Move on and do not try again
-            
+
+                log_to_loki(
+                    "warning", f"Citation ID {citation_id} has already been paid."
+                )
+
+                return (
+                    True  # Citation has already been paid. Move on and do not try again
+                )
+
             else:
                 response = insert_error_ticket(
                     citation_id, citation_status, should_try_again=True
                 )
-                if DO_LOGGING:
-                    log_to_loki("warning",
-                        f"Error: Citation ID {citation_id} gave an unhandled citation status: {citation_status}."
-                    )
-                return False  # Some unhandled citation error. Try again and do not move on
-        except Exception as e:
-            if DO_LOGGING:
-                log_to_loki("error", 
-                    f"Error inserting into error_tickets for citation ID {citation_id}: {e}"
+
+                log_to_loki(
+                    "warning",
+                    f"Error: Citation ID {citation_id} gave an unhandled citation status: {citation_status}.",
                 )
+                return (
+                    False  # Some unhandled citation error. Try again and do not move on
+                )
+        except Exception as e:
+            log_to_loki(
+                "error",
+                f"Error inserting into error_tickets for citation ID {citation_id}: {e}",
+            )
             return False  # Error handling failed
 
     response = insert_error_ticket(
         citation_id, "Some unknown error occurred", should_try_again=True
     )
-    if DO_LOGGING:
-        log_to_loki("warning",
-            f"Error: Citation ID {citation_id} gave an unhandled citation status."
-        )
+    log_to_loki(
+        "warning",
+        f"Error: Citation ID {citation_id} gave an unhandled citation status.",
+    )
     return False  # Unexpected response
+
 
 def load_latest_citations():
     """Load the latest citations from the JSON file."""
@@ -304,8 +326,9 @@ def scrape_new_citations(driver):
                     )
 
                     if citation_handled:
-                        log_to_loki("info",
-                            f"New citation found and handled for {device}: {next_citation_id}"
+                        log_to_loki(
+                            "info",
+                            f"New citation found and handled for {device}: {next_citation_id}",
                         )
 
                         # Update the latest citation ID for this device
@@ -315,16 +338,17 @@ def scrape_new_citations(driver):
                         save_latest_citations(latest_citations)
 
                         # Log the new citation
-                        if DO_LOGGING:
-                            log_to_loki("info",
-                                f"Processed new citation for {device}: {next_citation_id}"
-                            )
+                        log_to_loki(
+                            "info",
+                            f"Processed new citation for {device}: {next_citation_id}",
+                        )
 
                         # Increment to try the next citation immediately
                         next_citation_id += 1
                     else:
-                        log_to_loki("info",
-                            f"No more new citations for {device}. Last known: {next_citation_id - 1}"
+                        log_to_loki(
+                            "info",
+                            f"No more new citations for {device}. Last known: {next_citation_id - 1}",
                         )
                         break  # Exit the while loop when no new citation is found
 
@@ -343,15 +367,18 @@ def scrape_new_citations(driver):
                 driver.quit()  # Quit the current driver instance
                 driver = get_webdriver()  # Restart a new WebDriver instance
             else:
-                log_to_loki("error", "Max retries exceeded in scrape_new_citations. Exiting process.")
+                log_to_loki(
+                    "error",
+                    "Max retries exceeded in scrape_new_citations. Exiting process.",
+                )
                 break
-    
+
     log_to_loki("info", "Restarting chromedriver to prevent memory leaks...")
     driver.quit()  # Quit the current driver instance
     driver = get_webdriver()  # Restart a new WebDriver instance
-    
+
     return driver
-    
+
 
 def run_scrape_new_citations_thread(driver):
     """Run scrape_new_citations function in a separate thread."""
@@ -359,10 +386,10 @@ def run_scrape_new_citations_thread(driver):
         try:
             driver = scrape_new_citations(driver)  # Update the driver
         except Exception as e:
-            if DO_LOGGING:
-                log_to_loki("error", f"Error in scrape_new_citations: {e}")
+            log_to_loki("error", f"Error in scrape_new_citations: {e}")
         time.sleep(1)  # Sleep for a short while to avoid high CPU usage
-    
+
+
 # Call the function to start the threads
 driver = get_webdriver()  # Get WebDriver instance for scraping
 
