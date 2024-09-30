@@ -8,10 +8,12 @@ This is a scraping program which took advantage of a loophole with the **Univers
 
 ![image](https://github.com/user-attachments/assets/6510bc84-ff3b-4d73-9f9d-c57195c0d253)
 
-This codebase contains 3 folders:
 
-`/database` contains the PostgreSQL database schema, which can be self hosted via Supabase  
-`/scraper` contains the webscraping program which scrapes parking tickets from UCSD's system using Selenium Chromedriver (can be extended to other universities)  
-`/website` contains the Next.js website which is used to display parking tickets stored in the database  
+# Codebase structure
 
-If you have any questions, feel free to submit an issue here, and I will happily respond :)
+- `/database` contains the PostgreSQL database schema, which can be self hosted via Supabase  
+- `/scraper` contains the webscraping program which scrapes parking tickets from UCSD's system using Selenium Chromedriver (can be extended to other universities)  
+- `/website` contains the Next.js website which is used to display parking tickets stored in the database  
+
+# Have questions?
+Submit an issue here and I will respond as soon as possible!
