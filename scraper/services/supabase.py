@@ -7,42 +7,16 @@ from services.helpers import parse_citation_number
 
 load_dotenv()
 
-# Load Supabase credentials from environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SERVICE_ROLE_KEY:
     raise ValueError("SUPABASE_URL or SERVICE_ROLE_KEY not defined")
 
-# Initialize the Supabase client
 supabase: Client = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
 
-
-# Function to parse date to UTC timestamptz
-def parse_to_utc(issue_date: str) -> str:
-    # Parse the date string (assuming the format is MM/DD/YYYY)
-    local_date = datetime.strptime(issue_date, "%m/%d/%Y")
-
-    # Set timezone to UTC (because we want the same date in UTC, regardless of local timezone)
-    local_date = local_date.replace(tzinfo=pytz.UTC)
-
-    # Convert to UTC ISO format
-    return local_date.isoformat()
-
-# Function to parse date to PDT timestamp
-def parse_to_pdt(issue_date: str) -> str:
-    # Parse the date string (assuming the format is MM/DD/YYYY)
-    local_date = datetime.strptime(issue_date, "%m/%d/%Y")
-
-    # Set timezone to Pacific Daylight Time (PDT)
-    pdt_timezone = pytz.timezone('America/Los_Angeles')
-    local_date = pdt_timezone.localize(local_date)
-
-    # Convert to PDT ISO format
-    return local_date.isoformat()
-
-# Function to convert a PDT date to UTC
 def convert_pdt_to_utc(issue_date: str) -> str:
+    """This functionc converts PDT timezone to UTC"""
     # Parse the date string (assuming the format is MM/DD/YYYY)
     local_date = datetime.strptime(issue_date, "%m/%d/%Y")
     
@@ -56,14 +30,18 @@ def convert_pdt_to_utc(issue_date: str) -> str:
     # Return the UTC date in ISO format
     return utc_date.isoformat()
 
-# Check if ticket exists in 'tickets' table by citation_id
 def check_ticket_exists(citation_id: int):
+    """
+    This function checks if a ticket exists in the database
+    """
     response = supabase.table("tickets").select("*").eq("citation_id", citation_id).execute()
     return response.data if response.data and len(response.data) > 0 else None
 
-# Insert ticket with adjusted created_at logic
-# Insert ticket with adjusted created_at logic
+
 def insert_ticket(citation_id: int, status: str, issue_date: str, license_plate: str, balance: str, location: str, just_scraped: bool = False):
+    """
+    This function inserts a valid ticket into the database
+    """
     issue_date_utc = convert_pdt_to_utc(issue_date)
     parsed_citation = parse_citation_number(citation_id)
     
@@ -94,7 +72,7 @@ def insert_ticket(citation_id: int, status: str, issue_date: str, license_plate:
         "location": location,
         "region_num": parsed_citation["region_num"],
         "device_num": parsed_citation["device_num"],
-        "created_at": created_at,  # Use the computed created_at value
+        "created_at": created_at,
     }
 
     # Insert or update the ticket in the table
@@ -102,39 +80,12 @@ def insert_ticket(citation_id: int, status: str, issue_date: str, license_plate:
     return response
 
 
-
-# Function to get ticket by citation_id
-def get_ticket(citation_id: int):
-    # Query the "tickets" table
-    response = (
-        supabase.table("tickets").select("*").eq("citation_id", citation_id).execute()
-    )
-
-    # Check if we got a result from the tickets table
-    if response.data and len(response.data) > 0:
-        return response.data[0]  # Return the first result if found in tickets
-
-    # If not found in "tickets", query the "error_tickets" table
-    response = (
-        supabase.table("error_tickets")
-        .select("*")
-        .eq("citation_id", citation_id)
-        .execute()
-    )
-
-    # Check if we got a result from the error_tickets table
-    if response.data and len(response.data) > 0:
-        return response.data[0]  # Return the first result if found in error_tickets
-
-    # If not found in either table, return None
-    return None
-
-
-# Function to insert error ticket
 def insert_error_ticket(citation_id: int, error_message: str, should_try_again: bool):
+    """
+    This function inserts an error ticket, which is a ticket that threw an error when we tried to scrape it. This error could be that the ticket was paid for already or it could be any other unhandled error.
+    """
     parsed_citation = parse_citation_number(citation_id)
 
-    # Data you want to insert
     data = {
         "citation_id": citation_id,
         "error_message": error_message,
@@ -143,8 +94,6 @@ def insert_error_ticket(citation_id: int, error_message: str, should_try_again: 
         "device_num": parsed_citation["device_num"],
     }
 
-    # Specify the table name and insert the data
     response = supabase.table("error_tickets").upsert(data).execute()
 
-    # Check the response
     return response
