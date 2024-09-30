@@ -19,6 +19,9 @@ print("Pulling from", LATEST_CITATIONS_FILE)
 
 
 def log_to_loki(level: str, message: str, extra_info: dict = None):
+    """
+    This function logs to a private loki instance connected with Grafana. Feel free to replace this function with your own logging mechanism!
+    """
     stream = {
         "service": "ucsd-ticket-scraper",
         "job": "scrape-new-citations",
@@ -30,8 +33,10 @@ def log_to_loki(level: str, message: str, extra_info: dict = None):
     push_logs_to_loki(stream, messages)
 
 
-# Function to check for an error message
 def check_for_error_message(driver):
+    """
+    This function checks if an error message is apparent in the HTML and parses the text out
+    """
     try:
         error_message_element = WebDriverWait(driver, 3).until(
             EC.presence_of_element_located((By.CLASS_NAME, "message"))
@@ -42,6 +47,9 @@ def check_for_error_message(driver):
 
 
 def check_for_error_validation_message(driver):
+    """
+    This function checks if an error validation message is in the HTML. Error validation messages mean that the ticket does not exist in the database, unlike normal error messages.
+    """
     try:
         error_message_element = WebDriverWait(driver, 3).until(
             EC.presence_of_element_located((By.CLASS_NAME, "validation-summary-errors"))
@@ -51,8 +59,10 @@ def check_for_error_validation_message(driver):
         return None
 
 
-# Function to check for a redirection
 def check_for_redirect(driver):
+    """
+    This function checks if a redirect has occurred after entering a citation. If a redirect occurs, then we KNOW that valid ticket data is in the HTML
+    """
     try:
         WebDriverWait(driver, 3).until(EC.url_contains("/Account/Citations/Results"))
         return True
@@ -61,6 +71,9 @@ def check_for_redirect(driver):
 
 
 def extract_citation_details(driver, citation_id):
+    """
+    This function extracts the ticket data from the table HTML
+    """
     try:
         # Wait until the table containing the citation details appears
         WebDriverWait(driver, 10).until(
@@ -103,7 +116,7 @@ def extract_citation_details(driver, citation_id):
             f"Citation details extracted for citation ID {citation_id}",
             {"citations_data": citations_data},
         )
-        return citations_data  # Return the list of dictionaries
+        return citations_data
 
     except TimeoutException:
         log_to_loki(
@@ -120,6 +133,15 @@ def extract_citation_details(driver, citation_id):
 
 
 def get_citation_status_with_driver(citation_id, driver):
+    """
+    This function gets the status of the citation. One of 3 statuses will occur:
+
+    1. Valid ticket data
+    2. An error message (such as the ticket has been appealed or already been paid)
+    3. An error validation message (the ticket does not exist in the database)
+
+    These 3 checks are done in parallel after entering a citation number into the web page adn returned from this function
+    """
     log_to_loki("info", f"Getting citation details for {citation_id}")
 
     try:
@@ -179,8 +201,10 @@ def get_citation_status_with_driver(citation_id, driver):
         return "Timeout occurred while fetching citation data"
 
 
-# Citation status checker and Supabase integration function
 def handle_citation_with_driver(citation_id, driver):
+    """
+    This function calls get_citation_status_with_driver() and pushes the data to the database. Returns True if we should continue to the next citation number or False if we should stick with the same citation number in scrape_new_citations()
+    """
     start_time = time.time()  # Start time for logging
 
     # Fetch the citation status from the UCSD portal
@@ -194,9 +218,8 @@ def handle_citation_with_driver(citation_id, driver):
         f"Citation ID: {citation_id} | Time Taken: {time_taken:.2f} seconds | Result: {citation_status}",
     )
 
-    # Handle different outcomes from the citation status
     if isinstance(citation_status, list):
-        # Loop through all citation records in the list and insert each one
+        # This means valid ticket data has been returned. Insert them into the database
         for citation in citation_status:
             try:
                 response = insert_ticket(
@@ -206,9 +229,7 @@ def handle_citation_with_driver(citation_id, driver):
                     license_plate=citation.get("license_plate", None),
                     balance=citation.get("balance", None),
                     location=citation.get("location", None),
-                    just_scraped=citation.get(
-                        "just_scraped", False
-                    ),  # Pass the just_scraped flag
+                    just_scraped=citation.get("just_scraped", False),
                 )
                 log_to_loki(
                     "info",
@@ -220,16 +241,16 @@ def handle_citation_with_driver(citation_id, driver):
                     "error",
                     f"Error inserting/updating tickets for citation ID {citation.get('citation_number')}: {e}",
                 )
-                return False  # Failed insertion
-        return True  # Success: all citations were inserted
+                return False
+        return True # Move on to the next citation number
 
     elif "Error message found" in citation_status:
-        # Insert into "error_tickets" based on error content
         try:
             if (
                 "Your search did not match any unpaid citations" in citation_status
                 or "No results found" in citation_status
             ):
+                # This means that the ticket has been appealed or still needs to be processed. We should move on to the next citation number for safety but retry it later some other time.
                 response = insert_error_ticket(
                     citation_id, citation_status, should_try_again=True
                 )
@@ -243,6 +264,7 @@ def handle_citation_with_driver(citation_id, driver):
                 "The citation you entered does not match any citations in the system"
                 in citation_status
             ):
+                # This means that the citation does not exist. Do not insert into the database and do not move on to the next citation number
                 log_to_loki("info", f"Citation ID {citation_id} does not exist.")
 
                 return (
@@ -250,6 +272,7 @@ def handle_citation_with_driver(citation_id, driver):
                 )
 
             elif "The citation you entered has already been paid" in citation_status:
+                # This means that the citation has already been paid. We should move on to the next citation number and not bother with this number anymore since we cannot extract its citation data in the future.
                 response = insert_error_ticket(
                     citation_id, citation_status, should_try_again=False
                 )
@@ -262,7 +285,8 @@ def handle_citation_with_driver(citation_id, driver):
                     True  # Citation has already been paid. Move on and do not try again
                 )
 
-            else:
+            else:   
+                # This handles an edge case that perhaps the HTML has changed since first scraping. We do not move on to the next citation number and we insert an error ticket. If this gets hit, you should look into it ASAP
                 response = insert_error_ticket(
                     citation_id, citation_status, should_try_again=True
                 )
@@ -281,6 +305,7 @@ def handle_citation_with_driver(citation_id, driver):
             )
             return False  # Error handling failed
 
+    # This handles an edge case that perhaps the HTML has changed since first scraping. We do not move on to the next citation number and we insert an error ticket. If this gets hit, you should look into it ASAP
     response = insert_error_ticket(
         citation_id, "Some unknown error occurred", should_try_again=True
     )
@@ -304,12 +329,12 @@ def save_latest_citations(latest_citations):
 
 
 def scrape_new_citations(driver):
-    """Continuously check for new citations on each device and process them."""
+    """This function continuously checks for new citations that could exist in UCSD's system."""
     latest_citations = (
         load_latest_citations()
     )  # Load the latest citations from the file
 
-    max_retries = 3  # Maximum number of retries
+    max_retries = 3  # Maximum number of retries in case something goes wrong with Chrome webdriver.
     retry_count = 0
 
     while retry_count < max_retries:
@@ -320,12 +345,12 @@ def scrape_new_citations(driver):
                 )  # Start with the next citation number
 
                 while True:
-                    # Handle the citation and check if it was successfully inserted
                     citation_handled = handle_citation_with_driver(
                         next_citation_id, driver
                     )
 
                     if citation_handled:
+                        # This means we should move on to the next citation number
                         log_to_loki(
                             "info",
                             f"New citation found and handled for {device}: {next_citation_id}",
@@ -352,13 +377,13 @@ def scrape_new_citations(driver):
                         )
                         break  # Exit the while loop when no new citation is found
 
-                # Sleep for a few seconds to avoid overwhelming the server with requests
                 time.sleep(0.3)
 
             # Exit loop if no issues occur
             break
 
         except Exception as e:
+            # So this could occur if webdriver fails. This is used as a failsafe so scraping continues on.
             log_to_loki("error", f"Error in scrape_new_citations: {e}")
 
             retry_count += 1
@@ -381,7 +406,7 @@ def scrape_new_citations(driver):
 
 
 def run_scrape_new_citations_thread(driver):
-    """Run scrape_new_citations function in a separate thread."""
+    """Run scrape_new_citations function in a separate thread to support multithreading if needed."""
     while True:
         try:
             driver = scrape_new_citations(driver)  # Update the driver
