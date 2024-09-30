@@ -15,5 +15,5 @@ This is a scraping program which took advantage of a loophole with the **Univers
 - `/scraper` contains the webscraping program which scrapes parking tickets from UCSD's system using Selenium Chromedriver (can be extended to other universities)  
 - `/website` contains the Next.js website which is used to display parking tickets stored in the database  
 
-# Have questions?
+# Have some questions?
 Submit an issue here and I will respond as soon as possible!
