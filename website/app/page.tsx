@@ -14,119 +14,53 @@ type Ticket = {
   created_at: string;
 };
 
-// Revalidate the data every 5 seconds (or use ISR if needed)
-export const revalidate = 5;
+// Revalidate cache every 60 seconds (or use ISR if needed)
+export const revalidate = 60;
 
-// The server-side component
 export default async function HomePage({
   searchParams,
 }: {
   searchParams: { search?: string; deviceNum?: string };
 }) {
-  function convertToPDTandFormat(dateString: string): string {
-    const date = new Date(dateString);
-
-    // Convert date to PDT timezone
-    const options: Intl.DateTimeFormatOptions = {
-      timeZone: "America/Los_Angeles",
-      year: "2-digit",
-      month: "2-digit",
-      day: "2-digit",
-    };
-
-    // Format the date as MM/DD/YY
-    return new Intl.DateTimeFormat("en-US", options).format(date);
-  }
-
   const searchQuery = searchParams.search?.trim() || ""; // Get the search query from URL params
   const deviceNumQuery = searchParams.deviceNum?.trim() || ""; // Get the device number query from URL params
 
-  const dateAfterString = "2024-09-16T23:12:40.708043+00";
-  // Prepare the base Supabase query for both regular and paid tickets
-  let query = supabaseAdmin.from("tickets").select("*");
-  let paidQuery = null; // Initialize to null and set conditionally
+  const dateAfterString = "2024-09-16T23:12:40.708043+00"; // Get tickets only after this date by default
 
-  let isLast24HoursQuery = false; // To keep track of if we're querying the last 24 hours
+  let query = supabaseAdmin.from("tickets").select("*");
+
   let totalFees = 0; // Variable to accumulate the total fees
 
-  // If there is a search query or device number query, apply ILIKE filter and the specific created_at filter
-  if (searchQuery || deviceNumQuery) {
-    if (searchQuery) {
-      query = query.ilike("location", `%${searchQuery}%`);
-    }
-    if (deviceNumQuery) {
-      query = query.eq("device_num", `${deviceNumQuery}`);
-      // Only include error tickets if deviceNum is present and no search query
-      // paidQuery = supabaseAdmin
-      //   .from("error_tickets")
-      //   .select("*")
-      //   .eq("device_num", `${deviceNumQuery}`)
-      //   .gt("created_at", "2024-09-16T23:12:40.708043+00")
-      //   .limit(100);
-    }
-    query = query.gt("created_at", dateAfterString).limit(1000);
-  } else {
-    // If no search query, pull all tickets from the last 24 hours
-    const last24Hours = formatISO(subDays(new Date(), 1));
-    query = query.gt("created_at", dateAfterString);
-    // paidQuery = supabaseAdmin
-    //   .from("error_tickets")
-    //   .select("*")
-    //   .gt("created_at", last24Hours);
-    isLast24HoursQuery = true; // Mark that we are querying for the last 24 hours
+  query = query.gt("created_at", dateAfterString).limit(1000);
+
+  if (searchQuery) {
+    query = query.ilike("location", `%${searchQuery}%`);
+  }
+  if (deviceNumQuery) {
+    query = query.eq("device_num", `${deviceNumQuery}`);
   }
 
-  // Apply common ordering for both scenarios
   query = query
     .order("created_at", { ascending: false, nullsFirst: false })
     .order("citation_id", { ascending: false, nullsFirst: false })
     .order("issue_date", { ascending: false, nullsFirst: false });
 
-  // Fetch data from both queries (if paidQuery is defined)
-  const [ticketResult, paidTicketResult] = await Promise.all([
-    query,
-    paidQuery ? paidQuery : Promise.resolve({ data: [], error: null }), // Fallback to empty array if no paidQuery
-  ]);
+  const ticketResult = await query; // Execute query
 
   const { data: tickets, error: ticketError } = ticketResult;
-  const { data: paidTickets, error: paidError } = paidTicketResult;
 
-  if (ticketError || paidError) {
-    console.error("Error fetching tickets:", ticketError || paidError);
+  if (ticketError) {
+    console.error("Error fetching tickets:", ticketError);
     return <div>Failed to load tickets.</div>;
   }
 
-  // Map paid tickets to the Ticket type and mark them as paid
-  const mappedPaidTickets = paidTickets?.map((data) => ({
-    citation_id: data.citation_id,
-    issue_date: convertToPDTandFormat(data.created_at),
-    device_num: data.device_num,
-    status: "PAID",
-    license_plate: "*******",
-    balance: "$80.00",
-    location: data.location || "UNKNOWN",
-    created_at: data.created_at,
-  }));
-
-  // Combine regular tickets and paid tickets into one array
-  let combinedTickets = tickets || [];
-  if (mappedPaidTickets) {
-    combinedTickets = [...combinedTickets, ...mappedPaidTickets];
-  }
-
-  // Sort the combined tickets by created_at in descending order
-  combinedTickets.sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-
   // Parse balance and sum up the fees if there is no search query or device number query
-  if (!searchQuery && !deviceNumQuery && combinedTickets) {
-    totalFees = combinedTickets.reduce((sum, ticket) => {
+  if (!searchQuery && !deviceNumQuery && tickets) {
+    totalFees = tickets.reduce((sum, ticket) => {
       const parsedBalance = parseFloat(
         ticket.balance.replace(/[^0-9.-]+/g, "")
       ); // Remove $ symbol and parse as float
-      return sum + (isNaN(parsedBalance) ? 0 : parsedBalance); // Add to sum, skip NaN
+      return sum + (isNaN(parsedBalance) ? 0 : parsedBalance);
     }, 0);
   }
 
@@ -155,16 +89,16 @@ export default async function HomePage({
       >
         <input
           type="text"
-          name="search" // This will append `?search=value` to the URL
+          name="search"
           placeholder="Search location"
-          defaultValue={searchQuery} // Show the current search query in the input
+          defaultValue={searchQuery}
           className="px-4 py-2 border border-gray-300 rounded-lg w-full md:w-auto"
         />
         <input
           type="text"
-          name="deviceNum" // This will append `?deviceNum=value` to the URL
+          name="deviceNum"
           placeholder="Search device number"
-          defaultValue={deviceNumQuery} // Show the current device number query in the input
+          defaultValue={deviceNumQuery}
           className="px-4 py-2 border border-gray-300 rounded-lg w-full md:w-auto"
         />
         <button
@@ -176,7 +110,7 @@ export default async function HomePage({
         {/* Clear search button */}
         {(searchQuery || deviceNumQuery) && (
           <a
-            href="/" // Navigates back to the root URL, clearing the search query
+            href="/"
             className="px-4 py-2 bg-gray-500 text-white rounded-lg w-full md:w-auto text-center"
           >
             Clear Search
@@ -185,9 +119,9 @@ export default async function HomePage({
       </form>
 
       {/* Conditionally display ticket count if querying the last 24 hours */}
-      {!searchQuery && !deviceNumQuery && isLast24HoursQuery && (
+      {!searchQuery && !deviceNumQuery && (
         <p className="text-gray-600 mb-4">
-          {combinedTickets.length} tickets ($
+          {tickets.length} tickets ($
           {totalFees.toLocaleString("en-US", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -221,7 +155,7 @@ export default async function HomePage({
             </tr>
           </thead>
           <tbody>
-            {combinedTickets?.map((ticket: Ticket) => (
+            {tickets?.map((ticket: Ticket) => (
               <tr key={ticket.citation_id} className="border-t">
                 <td className="px-4 py-2 whitespace-nowrap">
                   {new Date(ticket.issue_date).toLocaleDateString()}
@@ -242,12 +176,12 @@ export default async function HomePage({
                   {new Intl.DateTimeFormat("en-US", {
                     timeZone: "America/Los_Angeles",
                     year: "numeric",
-                    month: "2-digit", // Ensure 2-digit month (MM)
-                    day: "2-digit", // Ensure 2-digit day (DD)
+                    month: "2-digit",
+                    day: "2-digit",
                     hour: "numeric",
                     minute: "numeric",
                     second: "numeric",
-                    hour12: true, // Use 12-hour format
+                    hour12: true,
                   }).format(new Date(ticket.created_at))}
                 </td>
               </tr>
@@ -256,7 +190,6 @@ export default async function HomePage({
         </table>
       </div>
 
-      {/* Disclaimer */}
       <footer className="mt-8 text-center text-gray-600 text-sm">
         <p>
           This website is not affiliated with UC San Diego and is for
